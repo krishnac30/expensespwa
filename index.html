@@ -399,7 +399,7 @@ var DB={
     this.tags=JSON.parse(localStorage.getItem('et_tags')||'[]');
     this.photos=JSON.parse(localStorage.getItem('et_photos')||'{}');
     var sv=JSON.parse(localStorage.getItem('et_cats')||'null');
-    if(sv){var cu=sv.filter(function(c){return!c.builtIn;});var bi=DCATS.map(function(dc){var s=sv.find(function(x){return x.id===dc.id;});return s?Object.assign({},dc,{budget:s.budget}):Object.assign({},dc);});this.cats=cu.concat(bi);}
+    if(sv){var cu=sv.filter(function(c){return!c.builtIn;});var bi=DCATS.map(function(dc){var s=sv.find(function(x){return x.id===dc.id;});return s?Object.assign({},dc,{budget:s.budget,budgetType:s.budgetType||'monthly'}):Object.assign({},dc);});this.cats=cu.concat(bi);}
     else{this.cats=DCATS.map(function(c){return Object.assign({},c);});}
   },
   save:function(){localStorage.setItem('et_exp',JSON.stringify(this.expenses));localStorage.setItem('et_inc',JSON.stringify(this.incomes));localStorage.setItem('et_cats',JSON.stringify(this.cats));localStorage.setItem('et_tags',JSON.stringify(this.tags));},
@@ -414,7 +414,7 @@ var S={
   ae:{amt:'',cur:'INR',catId:'c1',name:'',date:'',note:'',tags:[],ptags:[],photoId:null,photoUrl:null,payMode:'Cash'},
   ai:{amt:'',cur:'INR',title:'',date:'',note:''},
   nc:{name:'',icon:'⭐',color:'#2196F3',from:'settings'},
-  budCatId:null,detExpId:null,detIncId:null,
+  budCatId:null,budgType:'monthly',detExpId:null,detIncId:null,
   stFC:[],stFT:[],stPr:'all',stFrom:'',stTo:'',pvData:null
 };
 function freshAe(){return{amt:'',cur:'INR',catId:'c1',name:'',date:'',note:'',tags:[],ptags:[],photoId:null,photoUrl:null,payMode:'Cash'};}
@@ -666,19 +666,53 @@ function renderInc(){
 /* ---- BUDGET ---- */
 function renderBudg(){
   var now=new Date();
-  var te=DB.expenses.filter(function(e){var d=new Date(e.date);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();});
-  var sbc={};te.forEach(function(e){sbc[e.catId]=(sbc[e.catId]||0)+e.amount;});
-  var active=DB.cats.filter(function(c){return c.budget>0;}),nobud=DB.cats.filter(function(c){return!c.budget;});
+  var monthExps=DB.expenses.filter(function(e){var d=new Date(e.date);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();});
+  function catSpend(c){var exps=(c.budgetType==='lifetime')?DB.expenses:monthExps;return exps.filter(function(e){return e.catId===c.id;}).reduce(function(s,e){return s+e.amount;},0);}
+  var active=DB.cats.filter(function(c){return c.budget>0;});
+  var nobud=DB.cats.filter(function(c){return!c.budget;});
+  var mActive=active.filter(function(c){return(c.budgetType||'monthly')==='monthly';});
+  var lActive=active.filter(function(c){return c.budgetType==='lifetime';});
   var h='';
-  if(active.length){
-    var tb=active.reduce(function(s,c){return s+c.budget;},0),ts=active.reduce(function(s,c){return s+(sbc[c.id]||0);},0),ov=ts>tb;
-    h+='<div class="wc '+(ov?'r':'g')+'" style="margin-top:12px"><div class="wlb">Overall Budget</div><div class="wbl">'+fmtC(ts)+'</div><div class="wbg">'+(ov?'Over by '+fmtC(ts-tb):fmtC(tb-ts)+' remaining')+'</div><div class="wdv"></div><div class="pt" style="height:8px;background:rgba(255,255,255,.2)"><div class="pf" style="width:'+Math.min((ts/tb)*100,100)+'%;background:#fff"></div></div></div>';
-    h+='<div class="shd">Active Budgets</div>';
-    active.forEach(function(c){var sp=sbc[c.id]||0,p=Math.min((sp/c.budget)*100,100),fc=p>=100?'po':p>=80?'pw':'',o=sp>c.budget;h+='<div class="bc" data-editbudget="'+c.id+'"><div class="bch"><div class="bic" style="background:'+c.color+'20">'+c.icon+'</div><div><div class="bt">'+esc(c.name)+'</div><div class="bs" style="color:'+(o?'var(--red)':'var(--t2)')+'">'+  (o?'Over by '+fmtC(sp-c.budget):fmtC(c.budget-sp)+' left')+'</div></div><div class="brt"><div class="bsp" style="color:'+(o?'var(--red)':'var(--tx)')+'">'+fmtC(sp)+'</div><div class="bof">of '+fmtC(c.budget)+'</div></div></div><div class="pt"><div class="pf '+fc+'" style="width:'+p+'%"></div></div></div>';});
+  if(mActive.length){
+    var tb=mActive.reduce(function(s,c){return s+c.budget;},0),ts=mActive.reduce(function(s,c){return s+catSpend(c);},0),ov=ts>tb;
+    h+='<div class="wc '+(ov?'r':'g')+'" style="margin-top:12px"><div class="wlb">Monthly Budget Overview</div><div class="wbl">'+fmtC(ts)+'</div>';
+    h+='<div class="wbg">'+(ov?'Over by '+fmtC(ts-tb):fmtC(tb-ts)+' remaining this month')+'</div>';
+    h+='<div class="wdv"></div><div class="pt" style="height:8px;background:rgba(255,255,255,.2)"><div class="pf" style="width:'+Math.min((ts/tb)*100,100)+'%;background:#fff"></div></div></div>';
+    h+='<div class="shd">📅 Monthly Budgets</div>';
+    mActive.forEach(function(c){
+      var sp=catSpend(c),p=Math.min((sp/c.budget)*100,100),fc=p>=100?'po':p>=80?'pw':'',o=sp>c.budget;
+      h+='<div class="bc" data-editbudget="'+c.id+'"><div class="bch"><div class="bic" style="background:'+c.color+'20">'+c.icon+'</div>';
+      h+='<div><div class="bt">'+esc(c.name)+'</div><div class="bs" style="color:'+(o?'var(--red)':'var(--t2)')+'">'+
+        (o?'Over by '+fmtC(sp-c.budget):fmtC(c.budget-sp)+' left this month')+'</div></div>';
+      h+='<div class="brt"><div class="bsp" style="color:'+(o?'var(--red)':'var(--tx)')+'">'+fmtC(sp)+'</div><div class="bof">of '+fmtC(c.budget)+'</div></div></div>';
+      h+='<div class="pt"><div class="pf '+fc+'" style="width:'+p+'%"></div></div></div>';
+    });
   }
-  if(nobud.length){h+='<div class="shd">No Budget Set</div><div class="nbw">';nobud.forEach(function(c){h+='<div class="nbr" data-editbudget="'+c.id+'"><div class="nbl"><div style="width:32px;height:32px;border-radius:8px;background:'+c.color+'20;display:flex;align-items:center;justify-content:center;font-size:16px">'+c.icon+'</div><span style="font-size:15px;font-weight:500">'+esc(c.name)+'</span></div><span class="sth">Set ›</span></div>';});h+='</div>';}
+  if(lActive.length){
+    h+='<div class="shd">♾️ Lifetime Budgets</div>';
+    lActive.forEach(function(c){
+      var sp=catSpend(c),p=Math.min((sp/c.budget)*100,100),fc=p>=100?'po':p>=80?'pw':'',o=sp>c.budget;
+      h+='<div class="bc" data-editbudget="'+c.id+'"><div class="bch"><div class="bic" style="background:'+c.color+'20">'+c.icon+'</div>';
+      h+='<div><div class="bt">'+esc(c.name)+'</div>';
+      h+='<div class="bs" style="color:'+(o?'var(--red)':'var(--t2)')+'">'+
+        (o?'Over by '+fmtC(sp-c.budget):fmtC(c.budget-sp)+' remaining total')+'</div></div>';
+      h+='<div class="brt"><div class="bsp" style="color:'+(o?'var(--red)':'var(--tx)')+'">'+fmtC(sp)+'</div><div class="bof">of '+fmtC(c.budget)+'</div></div></div>';
+      h+='<div class="pt"><div class="pf '+fc+'" style="width:'+p+'%"></div></div>';
+      h+='<div style="margin-top:6px"><span style="font-size:11px;font-weight:600;color:var(--t2);background:var(--bg);padding:3px 10px;border-radius:8px">♾ No monthly reset · '+Math.round(p)+'% used</span></div>';
+      h+='</div>';
+    });
+  }
+  if(nobud.length){
+    h+='<div class="shd">No Budget Set</div><div class="nbw">';
+    nobud.forEach(function(c){
+      h+='<div class="nbr" data-editbudget="'+c.id+'"><div class="nbl"><div style="width:32px;height:32px;border-radius:8px;background:'+c.color+'20;display:flex;align-items:center;justify-content:center;font-size:16px">'+c.icon+'</div>';
+      h+='<span style="font-size:15px;font-weight:500">'+esc(c.name)+'</span></div><span class="sth">Set ›</span></div>';
+    });
+    h+='</div>';
+  }
   ge('budgetContent').innerHTML=h||'<div class="empty"><div class="eej">🎯</div><div class="eet">No categories</div></div>';
 }
+
 
 /* ---- DASHBOARD ---- */
 function renderDash(){
@@ -737,11 +771,42 @@ function bIncDet(){
 /* ---- BUDGET EDIT ---- */
 function bBudgEdit(){
   var c=DB.cat(S.budCatId);
-  var h='<div style="display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px"><div style="width:50px;height:50px;border-radius:12px;background:'+c.color+'20;display:flex;align-items:center;justify-content:center;font-size:26px">'+c.icon+'</div><div><div style="font-size:17px;font-weight:600">'+esc(c.name)+'</div><div style="font-size:13px;color:var(--t2)">Monthly budget in INR</div></div></div>';
-  h+='<div class="fg"><label class="fl">Monthly Budget (INR)</label><input class="fi" id="beAmt" type="tel" inputmode="decimal" placeholder="e.g. 10000" value="'+(c.budget||'')+'"></div>';
+  S.budgType=c.budgetType||'monthly';
+  var isLifetime=S.budgType==='lifetime';
+  var h='<div style="display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px">';
+  h+='<div style="width:50px;height:50px;border-radius:12px;background:'+c.color+'20;display:flex;align-items:center;justify-content:center;font-size:26px">'+c.icon+'</div>';
+  h+='<div><div style="font-size:17px;font-weight:600">'+esc(c.name)+'</div>';
+  h+='<div style="font-size:13px;color:var(--t2)">'+(isLifetime?'Lifetime budget · no monthly reset':'Monthly budget · resets each month')+'</div></div></div>';
+  /* Budget type toggle */
+  h+='<div class="fg"><label class="fl">Budget Type</label>';
+  h+='<div class="pmrow" id="bTypeRow">';
+  h+='<div class="pm'+(S.budgType==='monthly'?' on':'')+'" data-btype="monthly">&#x1F4C5; Monthly</div>';
+  h+='<div class="pm'+(S.budgType==='lifetime'?' on':'')+'" data-btype="lifetime">&#x267E;&#xFE0F; Lifetime</div>';
+  h+='</div>';
+  h+='<div id="bTypeDesc" style="font-size:12px;color:var(--t2);margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:10px;line-height:1.5">';
+  h+=(isLifetime?'Tracks <b>all spending ever</b> in this category — no time limit. Use this for one-off goals like a trip or project (e.g. ₹20,000 for Chennai exploration) until the full amount is spent.':'Tracks spending for <b>the current month only</b>. Automatically starts fresh on the 1st of each new month.');
+  h+='</div></div>';
+  /* Amount input */
+  h+='<div class="fg"><label class="fl" id="bAmtLbl">'+(isLifetime?'Total Lifetime Budget (INR)':'Monthly Budget (INR)')+'</label>';
+  h+='<input class="fi" id="beAmt" type="tel" inputmode="decimal" placeholder="e.g. 20000" value="'+(c.budget||'')+'"></div>';
   if(c.budget)h+='<button class="bod" id="beRm">Remove Budget</button>';
   ge('beScroll').innerHTML=h;
-  if(c.budget)ge('beRm').addEventListener('click',function(){var ct=DB.cats.find(function(x){return x.id===S.budCatId;});if(ct)ct.budget=0;DB.save();closeAll();renderBudg();});
+  /* Type toggle events */
+  ge('bTypeRow').addEventListener('click',function(e){
+    var btn=e.target.closest('[data-btype]');if(!btn)return;
+    S.budgType=btn.dataset.btype;
+    ge('bTypeRow').querySelectorAll('.pm').forEach(function(x){x.classList.toggle('on',x.dataset.btype===S.budgType);});
+    var lt=S.budgType==='lifetime';
+    ge('bTypeDesc').innerHTML=lt
+      ?'Tracks <b>all spending ever</b> in this category — no time limit. Use this for one-off goals like a trip or project (e.g. \u20b920,000 for Chennai exploration) until the full amount is spent.'
+      :'Tracks spending for <b>the current month only</b>. Automatically starts fresh on the 1st of each new month.';
+    var lbl=ge('bAmtLbl');if(lbl)lbl.textContent=lt?'Total Lifetime Budget (INR)':'Monthly Budget (INR)';
+  });
+  if(c.budget)ge('beRm').addEventListener('click',function(){
+    var ct=DB.cats.find(function(x){return x.id===S.budCatId;});
+    if(ct){ct.budget=0;ct.budgetType='monthly';}
+    DB.save();closeAll();renderBudg();
+  });
 }
 
 /* ---- NEW CATEGORY ---- */
@@ -868,7 +933,7 @@ ge('eeCancel').addEventListener('click',function(){S.editExpId=null;S.ae=freshAe
 ge('aiClose').addEventListener('click',closeAll);ge('aiCancel').addEventListener('click',closeAll);ge('aiSubmit').addEventListener('click',subAddInc);
 ge('edClose').addEventListener('click',closeAll);ge('idClose').addEventListener('click',closeAll);
 ge('beClose').addEventListener('click',closeAll);ge('beCancel').addEventListener('click',closeAll);
-ge('beSave').addEventListener('click',function(){var v=parseFloat((ge('beAmt').value||'0'))||0;var c=DB.cats.find(function(x){return x.id===S.budCatId;});if(c)c.budget=v;DB.save();closeAll();renderBudg();});
+ge('beSave').addEventListener('click',function(){var v=parseFloat((ge('beAmt').value||'0'))||0;var c=DB.cats.find(function(x){return x.id===S.budCatId;});if(c){c.budget=v;c.budgetType=S.budgType||'monthly';}DB.save();closeAll();renderBudg();});
 ge('ncClose').addEventListener('click',function(){S.prevSh=null;closeSheet('newcat');});
 ge('ncCancel').addEventListener('click',function(){S.prevSh=null;closeSheet('newcat');});
 ge('ncSave').addEventListener('click',saveNewCat);
